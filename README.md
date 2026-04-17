@@ -86,14 +86,13 @@ node ralph.js
 ```
 
 Ralph will:
-1. Create a feature branch (from PRD `branchName`)
+1. Archive previous run if branchName changed (saves to `archive/`)
 2. Pick the highest priority story where `passes: false`
-3. Implement that single story
-4. Run quality checks (typecheck, tests)
-5. Commit if checks pass
-6. Update `prd.json` to mark story as `passes: true`
-7. Append learnings to `progress.txt`
-8. Repeat until all stories pass or max iterations reached
+3. Build a six-layer prompt with project context and story details
+4. Spawn a Claude Code session to implement that single story
+5. Run post-session validation (JSON check, git commit check, auto-patch)
+6. Append progress to `progress.txt`
+7. Repeat until all stories pass or max iterations reached
 
 ## Key Files
 
@@ -106,6 +105,7 @@ Ralph will:
 | `lib/executor.js` | Claude CLI session execution (Windows/macOS/Linux) |
 | `lib/validator.js` | Post-session validation pipeline (JSON, git commit, auto-patch) |
 | `lib/progress.js` | Progress log initialization and append |
+| `lib/archive.js` | Branch-change detection and run archiving |
 | `templates/RALPH.md` | Agent instruction template |
 | `prd.json` | User stories with `passes` status (the task list) |
 | `progress.txt` | Append-only learnings for future iterations |
@@ -166,7 +166,7 @@ Check current state:
 
 ```bash
 # See which stories are done
-node -e "const p=require('./prd.json'); p.userStories.forEach(s => console.log(s.id, s.passes))"
+node -e "import('fs').then(fs => { const p = JSON.parse(fs.readFileSync('./prd.json','utf-8')); p.userStories.forEach(s => console.log(s.id, s.passes)) })"
 
 # See learnings from previous iterations
 cat progress.txt
