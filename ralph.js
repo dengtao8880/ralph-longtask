@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { copyFileSync, existsSync, unlinkSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import { loadConfig } from './lib/config.js';
@@ -16,23 +17,62 @@ let activeChild = null;
 
 // --- CLI argument parsing ---
 
+function loadPackageVersion() {
+  try {
+    const packageJsonPath = new URL('./package.json', import.meta.url);
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+    return packageJson.version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function printHelp() {
+  console.log(`
+${chalk.bold('ralph')} - Iterative Claude Code runner for prd.json stories
+
+${chalk.bold('Usage:')}
+  ralph [maxIterations] [options]
+  ralph pipeline <command> [options]
+
+${chalk.bold('Options:')}
+  --config <dir>        Specify project directory
+  --resume              Resume an interrupted Ralph execution loop
+  --help, -h            Show this help message
+  --version, -v         Show the installed Ralph version
+
+${chalk.bold('Examples:')}
+  ralph
+  ralph 20
+  ralph --resume
+  ralph --config ./path/to/project
+  ralph pipeline --help
+`.trim());
+}
+
 function parseArgs(argv) {
   const args = argv.slice(2);
   let maxIterations = null;
   let configPath = null;
   let resume = false;
+  let showHelp = false;
+  let showVersion = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--config' && args[i + 1]) {
       configPath = args[++i];
     } else if (args[i] === '--resume') {
       resume = true;
+    } else if (args[i] === '--help' || args[i] === '-h') {
+      showHelp = true;
+    } else if (args[i] === '--version' || args[i] === '-v') {
+      showVersion = true;
     } else if (!maxIterations && /^\d+$/.test(args[i])) {
       maxIterations = parseInt(args[i], 10);
     }
   }
 
-  return { maxIterations, configPath, resume };
+  return { maxIterations, configPath, resume, showHelp, showVersion };
 }
 
 // --- Main loop ---
@@ -45,7 +85,17 @@ async function main() {
     return;
   }
 
-  const { maxIterations: cliMax, configPath, resume } = parseArgs(process.argv);
+  const { maxIterations: cliMax, configPath, resume, showHelp, showVersion } = parseArgs(process.argv);
+
+  if (showHelp) {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (showVersion) {
+    console.log(loadPackageVersion());
+    process.exit(0);
+  }
 
   // Load config
   let config;
