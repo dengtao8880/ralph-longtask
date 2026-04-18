@@ -2,6 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { mkdtempSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import { executeSession } from '../lib/executor.js';
 
@@ -15,6 +18,30 @@ function makeChildProcess() {
 }
 
 describe('executor', () => {
+  it('reports a missing Claude CLI cleanly when PATH lookup fails', async () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'ralph-executor-missing-'));
+    const originalPath = process.env.PATH;
+    const originalHome = process.env.HOME;
+    const originalAppData = process.env.APPDATA;
+    mkdirSync(join(tempHome, '.npm-global', 'bin'), { recursive: true });
+    process.env.PATH = '';
+    process.env.HOME = tempHome;
+    process.env.APPDATA = tempHome;
+
+    try {
+      const { findClaudeBinary } = await import(`../lib/executor.js?missing-cli-${Date.now()}`);
+
+      assert.throws(
+        () => findClaudeBinary(),
+        /Claude CLI not found/,
+      );
+    } finally {
+      process.env.PATH = originalPath;
+      process.env.HOME = originalHome;
+      process.env.APPDATA = originalAppData;
+    }
+  });
+
   it('captures stdout and detects the completion signal while forwarding output', async () => {
     const child = makeChildProcess();
     const forwardedStdout = new PassThrough();

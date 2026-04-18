@@ -61,6 +61,9 @@ describe('pipeline-state', () => {
 
     const state4 = advancePhase(projectDir, 'execute');
     assert.deepEqual(state4.completedPhases, ['spec', 'review', 'convert', 'execute']);
+
+    const state5 = advancePhase(projectDir, 'archive');
+    assert.deepEqual(state5.completedPhases, ['spec', 'review', 'convert', 'execute', 'archive']);
   });
 
   it('advancePhase rejects out-of-order phase', () => {
@@ -105,7 +108,7 @@ describe('pipeline-state', () => {
   });
 
   it('getCurrentPhase returns null when all phases complete', () => {
-    const state = { completedPhases: ['spec', 'review', 'convert', 'execute'] };
+    const state = { completedPhases: ['spec', 'review', 'convert', 'execute', 'archive'] };
     assert.equal(getCurrentPhase(state), null);
   });
 

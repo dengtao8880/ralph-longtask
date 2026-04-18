@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -43,9 +43,11 @@ function makeRalphConfig(dir, overrides = {}) {
 
 function makeSpecArtifacts(dir, feature = 'notifications') {
   const changeDir = join(dir, 'openspec', 'changes', feature);
-  mkdirSync(changeDir, { recursive: true });
+  mkdirSync(join(changeDir, 'specs', feature), { recursive: true });
+  writeFileSync(join(changeDir, 'proposal.md'), '# proposal', 'utf-8');
   writeFileSync(join(changeDir, 'design.md'), '# design', 'utf-8');
   writeFileSync(join(changeDir, 'tasks.md'), '# tasks', 'utf-8');
+  writeFileSync(join(changeDir, 'specs', feature, 'spec.md'), '# spec', 'utf-8');
 }
 
 function makePrdMarkdown(dir, feature = 'notifications') {
@@ -109,6 +111,44 @@ describe('detectOpenSpec', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('detects globally installed openspec skills under the user .claude/skills directory', () => {
+    const dir = makeTmpDir();
+    const projectDir = makeTmpDir();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+
+    process.env.HOME = dir;
+    process.env.USERPROFILE = dir;
+
+    try {
+      mkdirSync(join(dir, '.claude', 'skills', 'openspec-review'), { recursive: true });
+      writeFileSync(join(dir, '.claude', 'skills', 'openspec-review', 'SKILL.md'), '# openspec', 'utf-8');
+
+      const result = detectOpenSpec(projectDir);
+
+      assert.equal(result.skillsAvailable, true);
+    } finally {
+      process.env.HOME = originalHome;
+      process.env.USERPROFILE = originalUserProfile;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('detects project-local openspec skills under .codex/skills', () => {
+    const dir = makeTmpDir();
+    try {
+      mkdirSync(join(dir, '.codex', 'skills', 'openspec-propose'), { recursive: true });
+      writeFileSync(join(dir, '.codex', 'skills', 'openspec-propose', 'SKILL.md'), '# openspec', 'utf-8');
+
+      const result = detectOpenSpec(dir);
+
+      assert.equal(result.skillsAvailable, true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -121,6 +161,32 @@ describe('detectSuperpowers', () => {
     assert.equal(typeof result.available, 'boolean');
     assert.ok(Array.isArray(result.skills));
   });
+
+  it('detects flat installed Superpowers skill directories under .claude/skills', () => {
+    const dir = makeTmpDir();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+
+    process.env.HOME = dir;
+    process.env.USERPROFILE = dir;
+
+    try {
+      mkdirSync(join(dir, '.claude', 'skills', 'requesting-code-review'), { recursive: true });
+      mkdirSync(join(dir, '.claude', 'skills', 'brainstorming'), { recursive: true });
+      writeFileSync(join(dir, '.claude', 'skills', 'requesting-code-review', 'SKILL.md'), '# skill', 'utf-8');
+      writeFileSync(join(dir, '.claude', 'skills', 'brainstorming', 'SKILL.md'), '# skill', 'utf-8');
+
+      const result = detectSuperpowers(dir);
+
+      assert.equal(result.available, true);
+      assert.ok(result.skills.includes('superpowers:requesting-code-review'));
+      assert.ok(result.skills.includes('superpowers:brainstorm'));
+    } finally {
+      process.env.HOME = originalHome;
+      process.env.USERPROFILE = originalUserProfile;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -131,9 +197,7 @@ describe('pipeline actions', () => {
   it('returns an advance action for spec when OpenSpec artifacts already exist', () => {
     const dir = makeTmpDir();
     try {
-      mkdirSync(join(dir, 'openspec', 'changes', 'notifications'), { recursive: true });
-      writeFileSync(join(dir, 'openspec', 'changes', 'notifications', 'design.md'), '# design', 'utf-8');
-      writeFileSync(join(dir, 'openspec', 'changes', 'notifications', 'tasks.md'), '# tasks', 'utf-8');
+      makeSpecArtifacts(dir);
 
       const result = runSpecPhase(dir, { feature: 'notifications' });
 
@@ -162,7 +226,7 @@ describe('pipeline actions', () => {
     }
   });
 
-  it('generates a PRD markdown during review when spec artifacts exist', () => {
+  it('blocks review and asks for Superpowers-generated PRD markdown when spec artifacts exist', () => {
     const dir = makeTmpDir();
     try {
       makeSpecArtifacts(dir);
@@ -177,18 +241,17 @@ describe('pipeline actions', () => {
         superpowers: { available: true, skills: ['superpowers:write-plan'] },
       });
 
-      assert.equal(result.status, 'advance');
-      assert.equal(result.metadata.prdPath, 'tasks/prd-notifications.md');
+      assert.equal(result.status, 'blocked');
+      assert.equal(result.reason, 'superpowers_review_required');
       assert.equal(result.metadata.reviewMode, 'superpowers-assisted');
-
-      const content = readFileSync(join(dir, 'tasks', 'prd-notifications.md'), 'utf-8');
-      assert.ok(content.includes('# PRD: Notifications'));
+      assert.deepEqual(result.metadata.reviewSkills, ['superpowers:write-plan']);
+      assert.ok(!existsSync(join(dir, 'tasks', 'prd-notifications.md')));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it('ignores a single mismatched PRD markdown and generates one for the active feature', () => {
+  it('keeps review blocked when only a mismatched PRD markdown exists', () => {
     const dir = makeTmpDir();
     try {
       makeSpecArtifacts(dir);
@@ -203,9 +266,9 @@ describe('pipeline actions', () => {
         },
       });
 
-      assert.equal(result.status, 'advance');
-      assert.equal(result.metadata.prdPath, 'tasks/prd-notifications.md');
-      assert.ok(readFileSync(join(dir, 'tasks', 'prd-notifications.md'), 'utf-8').includes('# PRD: Notifications'));
+      assert.equal(result.status, 'blocked');
+      assert.equal(result.reason, 'superpowers_review_required');
+      assert.ok(!existsSync(join(dir, 'tasks', 'prd-notifications.md')));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -501,7 +564,7 @@ describe('pipeline unknown command', () => {
 // ---------------------------------------------------------------------------
 
 describe('pipeline blocked messaging', () => {
-  it('prints guidance for needs_prd_markdown when OpenSpec is unavailable', () => {
+  it('prints guidance for openspec_required when OpenSpec is unavailable', () => {
     const dir = makeTmpDir();
     makeRalphConfig(dir);
 
@@ -521,19 +584,20 @@ describe('pipeline blocked messaging', () => {
 
       const output = logs.join('\n');
       assert.ok(output.includes('Pipeline paused at phase: spec'));
-      assert.ok(output.includes('no PRD markdown artifact was found'));
-      assert.ok(output.includes('tasks/prd-*.md'));
+      assert.ok(output.includes('OpenSpec is required for this pipeline.'));
     } finally {
       process.env.PATH = originalPath;
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it('prints guidance for spec_generation_required when OpenSpec is available but artifacts are missing', () => {
+  it('prints guidance to run /opsx:propose when OpenSpec skill files exist but the CLI is unavailable', () => {
     const dir = makeTmpDir();
     makeRalphConfig(dir);
     mkdirSync(join(dir, '.claude', 'skills', 'openspec-test'), { recursive: true });
     writeFileSync(join(dir, '.claude', 'skills', 'openspec-test', 'SKILL.md'), '# openspec', 'utf-8');
+    const originalPath = process.env.PATH;
+    process.env.PATH = '';
 
     try {
       const originalLog = console.log;
@@ -548,9 +612,10 @@ describe('pipeline blocked messaging', () => {
 
       const output = logs.join('\n');
       assert.ok(output.includes('Pipeline paused at phase: spec'));
-      assert.ok(output.includes('spec artifacts are missing'));
-      assert.ok(output.includes('Generate OpenSpec design/tasks artifacts'));
+      assert.ok(output.includes('/opsx:explore'));
+      assert.ok(output.includes('/opsx:propose'));
     } finally {
+      process.env.PATH = originalPath;
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -561,29 +626,9 @@ describe('pipeline blocked messaging', () => {
 // ---------------------------------------------------------------------------
 
 describe('pipeline end-to-end paths', () => {
-  it('run initializes and reaches execute-ready through the direct-prd degraded path', () => {
+  it('run initializes and pauses at spec when OpenSpec is unavailable', () => {
     const dir = makeTmpDir();
     makeRalphConfig(dir);
-    mkdirSync(join(dir, 'tasks'), { recursive: true });
-    writeFileSync(
-      join(dir, 'tasks', 'prd-notifications.md'),
-      `# PRD: Notifications
-
-## Introduction
-
-Add notifications so users can stay updated.
-
-## User Stories
-
-### US-001: Render notifications
-**Description:** As a user, I want notifications so that I can stay updated.
-
-**Acceptance Criteria:**
-- [ ] Notifications list renders
-`,
-      'utf-8',
-    );
-
     const originalPath = process.env.PATH;
     process.env.PATH = '';
 
@@ -601,17 +646,15 @@ Add notifications so users can stay updated.
       const state = loadPipelineState(dir);
       const output = logs.join('\n');
 
-      assert.deepEqual(state.completedPhases, ['spec', 'review', 'convert']);
-      assert.equal(state.metadata.specMode, 'direct-prd');
-      assert.ok(output.includes('ready to launch Ralph'));
-      assert.ok(readFileSync(join(dir, 'prd.json'), 'utf-8').includes('"branchName": "ralph/notifications"'));
+      assert.deepEqual(state.completedPhases, []);
+      assert.ok(output.includes('Pipeline paused at phase: spec'));
     } finally {
       process.env.PATH = originalPath;
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it('run reaches execute-ready without Superpowers by using the built-in review checklist', () => {
+  it('run pauses at review when OpenSpec artifacts exist but Superpowers has not produced a PRD markdown yet', () => {
     const dir = makeTmpDir();
     makeRalphConfig(dir);
     makeSpecArtifacts(dir);
@@ -635,9 +678,9 @@ Add notifications so users can stay updated.
       const state = loadPipelineState(dir);
       const output = logs.join('\n');
 
-      assert.deepEqual(state.completedPhases, ['spec', 'review', 'convert']);
-      assert.equal(state.metadata.reviewMode, 'built-in-checklist');
-      assert.ok(output.includes('ready to launch Ralph'));
+      assert.deepEqual(state.completedPhases, ['spec']);
+      assert.ok(output.includes('Pipeline paused at phase: review'));
+      assert.ok(output.includes('Superpowers review and PRD generation are required'));
     } finally {
       process.env.HOME = originalHome;
       process.env.USERPROFILE = originalUserProfile;
@@ -645,12 +688,13 @@ Add notifications so users can stay updated.
     }
   });
 
-  it('resume continues a pre-execute pipeline to execute-ready', () => {
+  it('resume continues a pre-convert pipeline and pauses for prd.json generation', () => {
     const dir = makeTmpDir();
     makeRalphConfig(dir);
     makePrdMarkdown(dir);
     runPipelineCommand(['init', 'notifications', '--config', dir]);
     runPipelineCommand(['advance', 'spec', '--config', dir]);
+    runPipelineCommand(['advance', 'review', '--config', dir]);
 
     const originalLog = console.log;
     const logs = [];
@@ -662,11 +706,12 @@ Add notifications so users can stay updated.
       console.log = originalLog;
     }
 
-    const state = loadPipelineState(dir);
-    const output = logs.join('\n');
+      const state = loadPipelineState(dir);
+      const output = logs.join('\n');
 
-    assert.deepEqual(state.completedPhases, ['spec', 'review', 'convert']);
-    assert.ok(output.includes('ready to launch Ralph'));
+    assert.deepEqual(state.completedPhases, ['spec', 'review']);
+    assert.ok(output.includes('Pipeline paused at phase: convert'));
+    assert.ok(output.includes('Run the ralph skill to convert'));
 
     rmSync(dir, { recursive: true, force: true });
   });

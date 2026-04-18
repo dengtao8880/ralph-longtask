@@ -45,6 +45,8 @@ Started: 2026-04-18T11:00:00
 
 function makeSpecArtifacts(dir, feature = 'notifications') {
   const changeDir = join(dir, 'openspec', 'changes', feature);
+  mkdirSync(join(changeDir, 'specs', feature), { recursive: true });
+  writeFileSync(join(changeDir, 'proposal.md'), '# proposal', 'utf-8');
   mkdirSync(changeDir, { recursive: true });
   writeFileSync(
     join(changeDir, 'design.md'),
@@ -68,6 +70,7 @@ Add ${feature} controls for users.
 `,
     'utf-8',
   );
+  writeFileSync(join(changeDir, 'specs', feature, 'spec.md'), '# spec', 'utf-8');
 }
 
 function makePrdMarkdown(dir, feature = 'notifications') {
@@ -105,10 +108,8 @@ describe('pipeline orchestration', () => {
     rmSync(projectDir, { recursive: true, force: true });
   });
 
-  it('auto-advances from spec into execute-ready when OpenSpec artifacts are already present', () => {
-    mkdirSync(join(projectDir, 'openspec', 'changes', 'notifications'), { recursive: true });
-    writeFileSync(join(projectDir, 'openspec', 'changes', 'notifications', 'design.md'), '# design', 'utf-8');
-    writeFileSync(join(projectDir, 'openspec', 'changes', 'notifications', 'tasks.md'), '# tasks', 'utf-8');
+  it('advances spec and then pauses at Superpowers review when OpenSpec artifacts are already present', () => {
+    makeSpecArtifacts(projectDir);
     savePipelineState(projectDir, {
       feature: 'notifications',
       completedPhases: [],
@@ -117,18 +118,20 @@ describe('pipeline orchestration', () => {
       metadata: {},
     });
 
-    const result = orchestratePipeline(projectDir, loadConfig(projectDir), { execute: false });
+    const result = orchestratePipeline(projectDir, loadConfig(projectDir), {
+      execute: false,
+      superpowers: { available: false, skills: [] },
+    });
     const state = loadPipelineState(projectDir);
 
-    assert.equal(result.status, 'ready_to_execute');
-    assert.equal(result.phase, 'execute');
-    assert.deepEqual(state.completedPhases, ['spec', 'review', 'convert']);
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'review');
+    assert.equal(result.reason, 'superpowers_review_required');
+    assert.deepEqual(state.completedPhases, ['spec']);
     assert.equal(state.metadata.specDir, 'openspec/changes/notifications');
-    assert.equal(state.prdPath, 'tasks/prd-notifications.md');
-    assert.ok(existsSync(join(projectDir, 'prd.json')));
   });
 
-  it('auto-advances review and convert when a PRD markdown already exists', () => {
+  it('advances review and then pauses at prd.json conversion when a PRD markdown already exists', () => {
     makePrdMarkdown(projectDir, 'notifications');
     savePipelineState(projectDir, {
       feature: 'notifications',
@@ -138,17 +141,20 @@ describe('pipeline orchestration', () => {
       metadata: {},
     });
 
-    const result = orchestratePipeline(projectDir, loadConfig(projectDir), { execute: false });
+    const result = orchestratePipeline(projectDir, loadConfig(projectDir), {
+      execute: false,
+      superpowers: { available: false, skills: [] },
+    });
     const state = loadPipelineState(projectDir);
 
-    assert.equal(result.status, 'ready_to_execute');
-    assert.equal(result.phase, 'execute');
-    assert.deepEqual(state.completedPhases, ['spec', 'review', 'convert']);
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'convert');
+    assert.equal(result.reason, 'prd_json_required');
+    assert.deepEqual(state.completedPhases, ['spec', 'review']);
     assert.equal(state.prdPath, 'tasks/prd-notifications.md');
-    assert.ok(existsSync(join(projectDir, 'prd.json')));
   });
 
-  it('auto-generates PRD markdown during review when spec artifacts exist', () => {
+  it('does not auto-generate a PRD markdown during review when spec artifacts exist', () => {
     makeSpecArtifacts(projectDir);
     savePipelineState(projectDir, {
       feature: 'notifications',
@@ -160,25 +166,78 @@ describe('pipeline orchestration', () => {
       },
     });
 
-    const result = orchestratePipeline(projectDir, loadConfig(projectDir), { execute: false });
+    const result = orchestratePipeline(projectDir, loadConfig(projectDir), {
+      execute: false,
+      superpowers: { available: false, skills: [] },
+    });
     const state = loadPipelineState(projectDir);
-    const prdPath = join(projectDir, 'tasks', 'prd-notifications.md');
 
-    assert.equal(result.status, 'ready_to_execute');
-    assert.equal(result.phase, 'execute');
-    assert.deepEqual(state.completedPhases, ['spec', 'review', 'convert']);
-    assert.equal(state.prdPath, 'tasks/prd-notifications.md');
-    assert.equal(state.metadata.reviewMode, 'built-in-checklist');
-    assert.ok(existsSync(prdPath));
-    assert.ok(existsSync(join(projectDir, 'prd.json')));
-
-    const content = readFileSync(prdPath, 'utf-8');
-    assert.ok(content.includes('# PRD: Notifications'));
-    assert.ok(content.includes('## User Stories'));
-    assert.ok(content.includes('## Functional Requirements'));
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'review');
+    assert.equal(result.reason, 'superpowers_review_required');
+    assert.deepEqual(state.completedPhases, ['spec']);
+    assert.ok(!existsSync(join(projectDir, 'tasks', 'prd-notifications.md')));
+    assert.ok(!existsSync(join(projectDir, 'prd.json')));
   });
 
-  it('ignores a mismatched single PRD markdown and generates one for the active feature', () => {
+  it('pauses at spec and requests OpenSpec proposal work when artifacts are missing', () => {
+    savePipelineState(projectDir, {
+      feature: 'notification-center',
+      completedPhases: [],
+      prdPath: null,
+      lastUpdated: new Date().toISOString(),
+      metadata: {},
+    });
+
+    const result = orchestratePipeline(projectDir, loadConfig(projectDir), {
+      execute: false,
+      openSpec: { cliAvailable: true, skillsAvailable: false, changesDir: null },
+      superpowers: { available: false, skills: [] },
+      specOptions: {
+        bootstrapOpenSpecProject: () => ({ status: 'initialized' }),
+      },
+    });
+    const state = loadPipelineState(projectDir);
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'spec');
+    assert.equal(result.reason, 'spec_generation_required');
+    assert.deepEqual(state.completedPhases, []);
+    assert.equal(state.metadata.specDir, undefined);
+  });
+
+  it('records Superpowers review requirements when review skills are available', () => {
+    makeSpecArtifacts(projectDir);
+    savePipelineState(projectDir, {
+      feature: 'notifications',
+      completedPhases: ['spec'],
+      prdPath: null,
+      lastUpdated: new Date().toISOString(),
+      metadata: {
+        specDir: 'openspec/changes/notifications',
+      },
+    });
+
+    const result = orchestratePipeline(projectDir, loadConfig(projectDir), {
+      execute: false,
+      superpowers: {
+        available: true,
+        skills: ['superpowers:requesting-code-review', 'superpowers:write-plan'],
+      },
+    });
+    const state = loadPipelineState(projectDir);
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'review');
+    assert.equal(result.reason, 'superpowers_review_required');
+    assert.deepEqual(result.metadata.reviewSkills, [
+      'superpowers:requesting-code-review',
+      'superpowers:write-plan',
+    ]);
+    assert.deepEqual(state.completedPhases, ['spec']);
+  });
+
+  it('keeps review blocked when only a mismatched PRD markdown exists', () => {
     makeSpecArtifacts(projectDir);
     mkdirSync(join(projectDir, 'tasks'), { recursive: true });
     writeFileSync(join(projectDir, 'tasks', 'prd-billing.md'), '# PRD: Billing', 'utf-8');
@@ -195,11 +254,12 @@ describe('pipeline orchestration', () => {
     const result = orchestratePipeline(projectDir, loadConfig(projectDir), { execute: false });
     const state = loadPipelineState(projectDir);
 
-    assert.equal(result.status, 'ready_to_execute');
-    assert.equal(result.phase, 'execute');
-    assert.equal(state.prdPath, 'tasks/prd-notifications.md');
-    assert.ok(existsSync(join(projectDir, 'tasks', 'prd-notifications.md')));
-    assert.ok(existsSync(join(projectDir, 'prd.json')));
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'review');
+    assert.equal(result.reason, 'superpowers_review_required');
+    assert.equal(state.prdPath, null);
+    assert.ok(!existsSync(join(projectDir, 'tasks', 'prd-notifications.md')));
+    assert.ok(!existsSync(join(projectDir, 'prd.json')));
   });
 
   it('auto-advances convert and stops at execute when prd.json is ready', () => {
@@ -240,7 +300,7 @@ describe('pipeline orchestration', () => {
     assert.equal(state.metadata.storyCount, 1);
   });
 
-  it('auto-generates prd.json during convert when review PRD markdown exists', () => {
+  it('blocks at convert when review PRD markdown exists but prd.json has not been produced yet', () => {
     makePrdMarkdown(projectDir);
     savePipelineState(projectDir, {
       feature: 'notifications',
@@ -252,21 +312,19 @@ describe('pipeline orchestration', () => {
 
     const result = orchestratePipeline(projectDir, loadConfig(projectDir), { execute: false });
     const state = loadPipelineState(projectDir);
-    const prd = JSON.parse(readFileSync(join(projectDir, 'prd.json'), 'utf-8'));
 
-    assert.equal(result.status, 'ready_to_execute');
-    assert.equal(result.phase, 'execute');
-    assert.deepEqual(state.completedPhases, ['spec', 'review', 'convert']);
-    assert.equal(state.metadata.storyCount, 1);
-    assert.equal(prd.branchName, 'ralph/notifications');
-    assert.equal(prd.userStories[0].passes, false);
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'convert');
+    assert.equal(result.reason, 'prd_json_required');
+    assert.deepEqual(state.completedPhases, ['spec', 'review']);
+    assert.ok(!existsSync(join(projectDir, 'prd.json')));
   });
 
   it('archives learnings and records the output path in pipeline metadata', () => {
     makeProgressFile(projectDir);
     savePipelineState(projectDir, {
       feature: 'notifications',
-      completedPhases: ['spec', 'review', 'convert', 'execute'],
+      completedPhases: ['spec', 'review', 'convert', 'execute', 'archive'],
       prdPath: 'tasks/prd-notifications.md',
       lastUpdated: new Date().toISOString(),
       metadata: {},
@@ -299,9 +357,7 @@ describe('pipeline phase actions', () => {
   });
 
   it('runSpecPhase returns advance when expected artifacts exist', () => {
-    mkdirSync(join(projectDir, 'openspec', 'changes', 'notifications'), { recursive: true });
-    writeFileSync(join(projectDir, 'openspec', 'changes', 'notifications', 'design.md'), '# design', 'utf-8');
-    writeFileSync(join(projectDir, 'openspec', 'changes', 'notifications', 'tasks.md'), '# tasks', 'utf-8');
+    makeSpecArtifacts(projectDir);
 
     const result = runSpecPhase(projectDir, { feature: 'notifications' });
 
@@ -312,29 +368,24 @@ describe('pipeline phase actions', () => {
     });
   });
 
-  it('runSpecPhase degrades to direct-prd when OpenSpec is unavailable and PRD markdown exists', () => {
-    mkdirSync(join(projectDir, 'tasks'), { recursive: true });
-    writeFileSync(join(projectDir, 'tasks', 'prd-notifications.md'), '# PRD', 'utf-8');
-
-    const result = runSpecPhase(projectDir, { feature: 'notifications', prdPath: null }, {
-      openSpec: { cliAvailable: false, skillsAvailable: false, changesDir: null },
-    });
-
-    assert.deepEqual(result, {
-      status: 'advance',
-      phase: 'spec',
-      metadata: { specMode: 'direct-prd', specDir: null },
-    });
-  });
-
-  it('runSpecPhase blocks with needs_prd_markdown when OpenSpec is unavailable and PRD markdown is missing', () => {
+  it('runSpecPhase blocks when OpenSpec is unavailable', () => {
     const result = runSpecPhase(projectDir, { feature: 'notifications', prdPath: null }, {
       openSpec: { cliAvailable: false, skillsAvailable: false, changesDir: null },
     });
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.phase, 'spec');
-    assert.equal(result.reason, 'needs_prd_markdown');
+    assert.equal(result.reason, 'openspec_required');
+  });
+
+  it('runSpecPhase blocks with openspec_required when OpenSpec is unavailable and no artifacts exist', () => {
+    const result = runSpecPhase(projectDir, { feature: 'notifications', prdPath: null }, {
+      openSpec: { cliAvailable: false, skillsAvailable: false, changesDir: null },
+    });
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'spec');
+    assert.equal(result.reason, 'openspec_required');
     assert.deepEqual(result.candidates, []);
   });
 
@@ -361,9 +412,11 @@ describe('pipeline phase actions', () => {
       openSpec: { cliAvailable: true, skillsAvailable: false, changesDir: null },
       bootstrapOpenSpecProject: (dir) => {
         const changeDir = join(dir, 'openspec', 'changes', 'notifications');
-        mkdirSync(changeDir, { recursive: true });
+        mkdirSync(join(changeDir, 'specs', 'notifications'), { recursive: true });
+        writeFileSync(join(changeDir, 'proposal.md'), '# proposal', 'utf-8');
         writeFileSync(join(changeDir, 'design.md'), '# design', 'utf-8');
         writeFileSync(join(changeDir, 'tasks.md'), '# tasks', 'utf-8');
+        writeFileSync(join(changeDir, 'specs', 'notifications', 'spec.md'), '# spec', 'utf-8');
         return { status: 'initialized' };
       },
     });
@@ -378,6 +431,29 @@ describe('pipeline phase actions', () => {
     });
   });
 
+  it('runSpecPhase blocks with /opsx:propose guidance when only OpenSpec skills are available', () => {
+    const result = runSpecPhase(projectDir, { feature: 'notification-center' }, {
+      openSpec: { cliAvailable: false, skillsAvailable: true, changesDir: null },
+    });
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'spec');
+    assert.equal(result.reason, 'spec_generation_required');
+    assert.equal(result.metadata.specBootstrap, 'skipped');
+    assert.equal(result.metadata.specGeneration, 'manual-opsx-propose-required');
+  });
+
+  it('runSpecPhase blocks with /opsx:propose guidance when CLI integration is available but artifacts are still missing', () => {
+    const result = runSpecPhase(projectDir, { feature: 'notification-center' }, {
+      openSpec: { cliAvailable: true, skillsAvailable: false, changesDir: join(projectDir, 'openspec', 'changes') },
+    });
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'spec');
+    assert.equal(result.reason, 'spec_generation_required');
+    assert.equal(result.metadata.specGeneration, 'opsx-propose-required');
+  });
+
   it('runReviewPhase returns blocked when no PRD artifact exists', () => {
     const result = runReviewPhase(projectDir, { feature: 'notifications', prdPath: null });
 
@@ -387,7 +463,7 @@ describe('pipeline phase actions', () => {
     assert.deepEqual(result.candidates, []);
   });
 
-  it('runReviewPhase generates PRD markdown from spec artifacts when no PRD markdown exists', () => {
+  it('runReviewPhase blocks and requests Superpowers review when no PRD markdown exists', () => {
     makeSpecArtifacts(projectDir);
 
     const result = runReviewPhase(projectDir, {
@@ -400,14 +476,14 @@ describe('pipeline phase actions', () => {
       superpowers: { available: false, skills: [] },
     });
 
-    assert.equal(result.status, 'advance');
+    assert.equal(result.status, 'blocked');
     assert.equal(result.phase, 'review');
-    assert.equal(result.metadata.prdPath, 'tasks/prd-notifications.md');
+    assert.equal(result.reason, 'superpowers_review_required');
     assert.equal(result.metadata.reviewMode, 'built-in-checklist');
-    assert.ok(existsSync(join(projectDir, 'tasks', 'prd-notifications.md')));
+    assert.ok(!existsSync(join(projectDir, 'tasks', 'prd-notifications.md')));
   });
 
-  it('runReviewPhase blocks with generation_failed when PRD generation fails', () => {
+  it('runReviewPhase exposes available Superpowers review skills when review is still pending', () => {
     makeSpecArtifacts(projectDir);
 
     const result = runReviewPhase(projectDir, {
@@ -417,13 +493,13 @@ describe('pipeline phase actions', () => {
         specDir: 'openspec/changes/notifications',
       },
     }, {
-      generatePrdFromSpec: () => ({ status: 'failed', error: 'simulated failure' }),
+      superpowers: { available: true, skills: ['superpowers:brainstorm'] },
     });
 
     assert.equal(result.status, 'blocked');
-    assert.equal(result.phase, 'review');
-    assert.equal(result.reason, 'generation_failed');
-    assert.equal(result.metadata.generationError, 'simulated failure');
+    assert.equal(result.reason, 'superpowers_review_required');
+    assert.equal(result.metadata.reviewMode, 'built-in-checklist');
+    assert.deepEqual(result.metadata.reviewSkills, []);
   });
 
   it('runReviewPhase blocks when multiple PRD candidates match ambiguously', () => {
@@ -476,7 +552,7 @@ describe('pipeline phase actions', () => {
     });
   });
 
-  it('runConvertPhase auto-generates prd.json from PRD markdown when missing', () => {
+  it('runConvertPhase blocks with prd_json_required when PRD markdown exists but prd.json is missing', () => {
     mkdirSync(join(projectDir, 'tasks'), { recursive: true });
     writeFileSync(
       join(projectDir, 'tasks', 'prd-notifications.md'),
@@ -503,21 +579,15 @@ Add notifications.
     });
 
     assert.deepEqual(result, {
-      status: 'advance',
+      status: 'blocked',
       phase: 'convert',
-      metadata: { storyCount: 1 },
+      reason: 'prd_json_required',
+      metadata: { prdPath: 'tasks/prd-notifications.md' },
     });
-    assert.ok(existsSync(join(projectDir, 'prd.json')));
-
-    const generated = JSON.parse(readFileSync(join(projectDir, 'prd.json'), 'utf-8'));
-    assert.equal(generated.branchName, 'ralph/notifications');
-    assert.equal(generated.userStories[0].priority, 1);
-    assert.equal(generated.userStories[0].passes, false);
-    assert.equal(generated.userStories[0].notes, '');
-    assert.ok(generated.userStories[0].acceptanceCriteria.includes('Typecheck passes'));
+    assert.ok(!existsSync(join(projectDir, 'prd.json')));
   });
 
-  it('runConvertPhase generates prd.json from PRD markdown when needed', () => {
+  it('runConvertPhase blocks with prd_json_required when conversion must still be done by the ralph skill', () => {
     makePrdMarkdown(projectDir);
 
     const result = runConvertPhase(projectDir, loadConfig(projectDir), {
@@ -526,10 +596,11 @@ Add notifications.
       metadata: {},
     });
 
-    assert.equal(result.status, 'advance');
+    assert.equal(result.status, 'blocked');
     assert.equal(result.phase, 'convert');
-    assert.equal(result.metadata.storyCount, 1);
-    assert.ok(existsSync(join(projectDir, 'prd.json')));
+    assert.equal(result.reason, 'prd_json_required');
+    assert.equal(result.metadata.prdPath, 'tasks/prd-notifications.md');
+    assert.ok(!existsSync(join(projectDir, 'prd.json')));
   });
 
   it('runExecutePhase returns a normalized execute action when execution should start', () => {
@@ -555,7 +626,6 @@ describe('pipeline orchestration OpenSpec injection', () => {
   });
 
   it('uses injected OpenSpec detection in spec phase', () => {
-    makePrdMarkdown(projectDir, 'notifications');
     savePipelineState(projectDir, {
       feature: 'notifications',
       completedPhases: [],
@@ -570,11 +640,9 @@ describe('pipeline orchestration OpenSpec injection', () => {
     });
     const state = loadPipelineState(projectDir);
 
-    assert.equal(result.status, 'ready_to_execute');
-    assert.equal(result.phase, 'execute');
-    assert.deepEqual(state.completedPhases, ['spec', 'review', 'convert']);
-    assert.equal(state.metadata.specMode, 'direct-prd');
-    assert.equal(state.metadata.specDir, null);
-    assert.ok(existsSync(join(projectDir, 'prd.json')));
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.phase, 'spec');
+    assert.equal(result.reason, 'openspec_required');
+    assert.deepEqual(state.completedPhases, []);
   });
 });

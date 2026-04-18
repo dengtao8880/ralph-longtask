@@ -144,10 +144,12 @@ describe('config', () => {
   it('supports env overrides for acceptance commands', () => {
     process.env.RALPH_VALIDATION_ACCEPTANCE_COMMANDS_TYPECHECK = 'npm run typecheck';
     process.env.RALPH_VALIDATION_ACCEPTANCE_COMMANDS_TESTS = 'npm test';
+    process.env.RALPH_VALIDATION_ACCEPTANCE_COMMANDS_BROWSER = 'npm run test:browser';
 
     const config = loadConfig(TEST_DIR);
 
     assert.equal(config.validation.acceptanceCommands.typecheck, 'npm run typecheck');
     assert.equal(config.validation.acceptanceCommands.tests, 'npm test');
+    assert.equal(config.validation.acceptanceCommands.browser, 'npm run test:browser');
   });
 });

@@ -152,6 +152,32 @@ describe('validator', () => {
     assert.equal(result.reason, 'no-completion-signal');
   });
 
+  it('checks git history in the configured project directory', () => {
+    const prdPath = writePrd(TEST_DIR, SAMPLE_PRD);
+    let receivedCwd = null;
+
+    const result = runValidation({
+      prdPath,
+      storyId: 'US-001',
+      sessionStart: new Date().toISOString(),
+      sessionEnd: new Date().toISOString(),
+      validationConfig: {
+        checkGitCommit: true,
+        patchPrdPasses: true,
+        validatePrdSchema: true,
+      },
+      sessionSuccess: true,
+      completionSignaled: true,
+      checkGitCommitImpl: (storyId, sessionStart, sessionEnd, options = {}) => {
+        receivedCwd = options.cwd;
+        return { found: true };
+      },
+    });
+
+    assert.equal(result.valid, true);
+    assert.equal(receivedCwd, TEST_DIR);
+  });
+
   it('returns invalid when completion signal exists but no matching commit is found', () => {
     const prdPath = writePrd(TEST_DIR, SAMPLE_PRD);
     const result = runValidation({
@@ -304,5 +330,44 @@ describe('validator', () => {
     const reloaded = JSON.parse(readFileSync(prdPath, 'utf-8'));
     assert.equal(result.valid, true);
     assert.equal(reloaded.userStories[0].passes, true);
+  });
+
+  it('fails validation for UI stories when browser verification is required but not configured', () => {
+    const prdPath = writePrd(TEST_DIR, {
+      userStories: [
+        {
+          id: 'US-001',
+          title: 'UI story',
+          passes: false,
+          priority: 1,
+          acceptanceCriteria: ['Verify in browser using dev-browser skill'],
+        },
+      ],
+    });
+
+    const result = runValidation({
+      prdPath,
+      storyId: 'US-001',
+      sessionStart: new Date().toISOString(),
+      sessionEnd: new Date().toISOString(),
+      validationConfig: {
+        checkGitCommit: true,
+        patchPrdPasses: true,
+        validatePrdSchema: true,
+        acceptanceCommands: {
+          typecheck: 'node -e "process.exit(0)"',
+          tests: 'node -e "process.exit(0)"',
+        },
+      },
+      sessionSuccess: true,
+      completionSignaled: true,
+      checkGitCommitImpl: () => ({ found: true }),
+    });
+
+    const reloaded = JSON.parse(readFileSync(prdPath, 'utf-8'));
+    assert.equal(result.valid, false);
+    assert.equal(result.reason, 'acceptance-check-unconfigured');
+    assert.equal(result.check, 'browser');
+    assert.equal(reloaded.userStories[0].passes, false);
   });
 });

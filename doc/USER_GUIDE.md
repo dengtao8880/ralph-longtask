@@ -1,61 +1,218 @@
-# Ralph CLI 使用指南
+# Ralph 用户指南
 
-## 安装
+这份文档是对根目录 [README.md](/D:/project/AI-Coding/ralph-longtask/README.md) 的展开版，面向第一次接触 Ralph 的开发者。
 
-### 前置要求
-- Node.js >= 18
-- Claude CLI (`npm install -g @anthropic-ai/claude-code`)
+你可以把 Ralph 理解成一个“自动推进开发任务的 CLI”：
 
-### 全局安装
+- 你先把需求整理成 `prd.json`
+- Ralph 再按故事顺序逐个执行
+- 每一轮都启动一个全新的 Claude Code 会话
+- 只有通过验证的故事才会被自动标记完成
+
+如果你只想快速理解全貌，先读 README。  
+如果你准备实际落地使用，请按这份用户指南一步一步操作。
+
+## 两条推荐使用路径
+
+### 路径 A：只使用 Ralph CLI
+
+适合：
+
+- 你已经知道要做什么
+- 你只想把需求变成 `prd.json` 然后让 Ralph 执行
+- 你还不想引入 OpenSpec 或更完整的 pipeline
+
+### 路径 B：使用 OpenSpec + Superpowers + Ralph
+
+适合：
+
+- 你希望先做设计和评审，再进入执行
+- 你想保留 `spec -> review -> convert -> execute -> archive` 的阶段化流程
+- 你希望在对话里用 skill 管理 gate，在 CLI 里用 `ralph pipeline` 管理状态
+
+---
+
+## 通用前置条件
+
+### 1. 安装 Node.js
+
+要求：
+
+- Node.js `>= 18`
+
+检查：
+
 ```bash
-cd ralph-longtask
+node --version
+npm --version
+```
+
+### 2. 安装 Claude Code CLI
+
+Ralph 本身不生成代码。  
+它调度的是 Claude Code CLI。
+
+安装：
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+验证：
+
+```bash
+claude --version
+```
+
+### 3. 安装 Ralph
+
+在本仓库根目录执行：
+
+```bash
 npm install
+```
+
+如果你希望系统中任何项目目录都能直接运行 `ralph` 命令，再执行：
+
+```bash
 npm link
 ```
 
-之后在任意项目目录可直接运行 `ralph` 命令。
+验证：
 
-### 本地运行（不安装）
 ```bash
-node ralph.js [参数]
+ralph --help
+ralph-pipeline --help
+```
+
+如果不做全局安装，也可以直接运行：
+
+```bash
+node D:/project/AI-Coding/ralph-longtask/ralph.js --config .
 ```
 
 ---
 
-## 快速开始
+## 路径 A：Ralph CLI 单独使用
 
-### 1. 准备 prd.json
+这是最简单、最推荐的新手上手方式。
 
-在项目根目录创建 `prd.json`：
+### 整体流程
+
+1. 准备项目目录
+2. 生成 Markdown PRD
+3. 转成 `prd.json`
+4. 可选创建 `RALPH.md`
+5. 创建 `ralph.config.json`
+6. 运行 Ralph
+7. 查看结果和继续迭代
+
+---
+
+### 第 1 步：准备项目目录
+
+最终推荐结构：
+
+```text
+my-project/
+├── src/
+├── tasks/
+│   └── prd-my-feature.md
+├── prd.json
+├── progress.txt
+├── RALPH.md
+├── CLAUDE.md
+└── ralph.config.json
+```
+
+这些文件的作用：
+
+- `tasks/prd-my-feature.md`
+  人类和 AI 都更容易阅读的 Markdown PRD
+- `prd.json`
+  Ralph 真正执行的任务清单
+- `progress.txt`
+  Ralph 自动写入的进度日志和 learnings 来源
+- `RALPH.md`
+  你希望每轮都遵守的固定规则
+- `CLAUDE.md`
+  项目本身已有的协作规范，可选
+- `ralph.config.json`
+  Ralph 的项目级配置
+
+---
+
+### 第 2 步：使用 `prd` skill 生成 Markdown PRD
+
+如果你还没有成型的 PRD，先用 `prd` skill。
+
+示例：
+
+```text
+/ralph-skills:prd "给我的项目增加通知中心功能"
+```
+
+`skills/prd/SKILL.md` 的职责是：
+
+1. 先问必要澄清问题
+2. 生成结构化 PRD
+3. 保存到 `tasks/prd-[feature-name].md`
+
+你可以预期得到类似文件：
+
+```text
+tasks/prd-notification-center.md
+```
+
+通常会包含：
+
+- Introduction
+- Goals
+- User Stories
+- Functional Requirements
+- Non-Goals
+- Success Metrics
+- Open Questions
+
+如果你已经有 Markdown PRD，可以直接跳过这一步。
+
+---
+
+### 第 3 步：使用 `ralph` skill 转成 `prd.json`
+
+Ralph CLI 不直接执行 Markdown 文件。  
+它执行的是结构化 JSON。
+
+所以你需要用 `ralph` skill 做转换：
+
+```text
+/ralph-skills:ralph "把 tasks/prd-notification-center.md 转成 prd.json"
+```
+
+`skills/ralph/SKILL.md` 会帮你做几件事：
+
+- 把大需求拆成多个可执行故事
+- 调整故事顺序，先依赖、后 UI
+- 给每个故事补上可验证的验收标准
+- 生成可执行的 `prd.json`
+
+一个最小 `prd.json` 示例：
 
 ```json
 {
   "project": "my-project",
-  "branchName": "feature/my-feature",
-  "description": "项目描述",
+  "branchName": "ralph/notification-center",
+  "description": "Notification center for users",
   "userStories": [
     {
       "id": "US-001",
-      "title": "实现用户登录",
-      "description": "添加邮箱+密码登录功能",
+      "title": "Add notifications table",
+      "description": "As a developer, I want to persist notifications so the system can store them.",
       "acceptanceCriteria": [
-        "用户可以通过邮箱和密码登录",
-        "登录失败时显示错误提示",
-        "登录成功后跳转到首页"
+        "Add notifications table and migration",
+        "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-002",
-      "title": "实现用户注册",
-      "description": "添加新用户注册功能",
-      "acceptanceCriteria": [
-        "支持邮箱注册",
-        "密码强度校验"
-      ],
-      "priority": 2,
       "passes": false,
       "notes": ""
     }
@@ -63,71 +220,77 @@ node ralph.js [参数]
 }
 ```
 
-**字段说明：**
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `id` | 是 | 故事唯一标识，用于 git commit 匹配 |
-| `title` | 是 | 故事标题 |
-| `description` | 否 | 详细描述 |
-| `acceptanceCriteria` | 否 | 验收标准列表 |
-| `priority` | 否 | 优先级（数字越小越优先，默认 Infinity） |
-| `passes` | 是 | 是否已完成 |
-| `notes` | 否 | 备注信息，为空时不会出现在 prompt 中 |
+### 这里最重要的两条规则
 
-### 2. 准备 RALPH.md（可选）
+#### 规则 1：每个故事必须足够小
 
-创建全局指令文件，定义 AI 的行为规则。可以使用模板：
+Ralph 每一轮都是“全新上下文 + 单个故事”。  
+如果 story 太大，Claude 很可能做不完，或做完也无法通过验证。
 
-```bash
-cp templates/RALPH.md ./RALPH.md
+合适的 story 例子：
+
+- 添加一个数据库字段和迁移
+- 给现有页面新增一个小组件
+- 为某个接口补一个明确逻辑
+
+不合适的 story 例子：
+
+- “实现完整 dashboard”
+- “重构整个认证系统”
+- “完成整个通知模块”
+
+#### 规则 2：验收标准必须可验证
+
+推荐写法：
+
+- `Typecheck passes`
+- `Tests pass`
+- `Verify in browser using dev-browser skill`
+- `Add status column with default pending`
+
+不要写：
+
+- `Works correctly`
+- `Good UX`
+- `Handles all edge cases`
+
+### UI 故事特别注意
+
+如果某个故事涉及 UI，建议总是加上：
+
+```text
+Verify in browser using dev-browser skill
 ```
 
-根据项目需要修改内容。
-
-### 3. 运行
-
-```bash
-ralph
-```
+否则“代码改了”不等于“界面真的可用”。
 
 ---
 
-## 命令行参数
+### 第 4 步：可选创建 `RALPH.md`
 
-```
-ralph [max_iterations] [--config <path>]
+如果你希望每一轮 Claude Code 都遵守一套固定规范，就创建 `RALPH.md`。
+
+Windows PowerShell 示例：
+
+```powershell
+Copy-Item D:/project/AI-Coding/ralph-longtask/templates/RALPH.md ./RALPH.md
 ```
 
-| 参数 | 说明 | 示例 |
-|------|------|------|
-| `max_iterations` | 位置参数，最大迭代次数 | `ralph 5` |
-| `--config` | 指定配置文件所在目录 | `ralph --config /path/to/project` |
-| `--resume` | 跳过 progress 初始化和 archive 检查，从中断处恢复 | `ralph --resume` |
+你可以在里面写：
+
+- 提交规范
+- 测试要求
+- 不允许碰的目录
+- 前端或后端约定
+- 数据库迁移规则
+
+没有 `RALPH.md` 也能运行，只是少了一层固定团队规范。
 
 ---
 
-## 配置文件
+### 第 5 步：创建 `ralph.config.json`
 
-Ralph 使用三层配置合并策略：
-
-```
-默认值 → ralph.config.json（文件） → 环境变量（最高优先级）
-```
-
-### 配置文件搜索
-
-Ralph 从当前工作目录开始，向上逐级搜索 `ralph.config.json`，直到找到为止。
-
-例如在 `/project/src/components` 运行时，搜索顺序为：
-1. `/project/src/components/ralph.config.json`
-2. `/project/src/ralph.config.json`
-3. `/project/ralph.config.json` ← 命中
-
-未找到则全部使用默认值。
-
-### 完整配置示例
-
-在项目根目录创建 `ralph.config.json`：
+推荐从这份配置起步：
 
 ```json
 {
@@ -136,116 +299,281 @@ Ralph 从当前工作目录开始，向上逐级搜索 `ralph.config.json`，直
   "maxIterations": 10,
   "cooldownSeconds": 3,
   "permissionsMode": "full",
-
   "claude": {
-    "maxTurns": 50,
+    "maxTurns": 50
   },
-
   "prompts": {
     "agentInstructionPath": "./RALPH.md",
     "extraContextPaths": [
-      "./openspec/changes/*/design.md",
-      "./openspec/changes/*/tasks.md",
       "./CLAUDE.md"
     ],
     "extraInstructions": "",
     "strictSingleStory": true
   },
-
   "validation": {
     "checkGitCommit": true,
     "patchPrdPasses": true,
     "validatePrdSchema": true,
     "acceptanceCommands": {
-      "typecheck": "",
-      "tests": ""
+      "typecheck": "npm run typecheck",
+      "tests": "npm test",
+      "browser": "npm run test:browser"
     }
   }
 }
 ```
 
-### 配置项详解
+### 关键字段解释
 
-#### 基础设置
+| 字段 | 作用 |
+|------|------|
+| `prdPath` | 指定 Ralph 读取哪个 `prd.json` |
+| `progressPath` | 指定进度日志路径 |
+| `maxIterations` | 最多执行多少轮 |
+| `cooldownSeconds` | 两轮之间休息多久 |
+| `permissionsMode` | Claude CLI 是否使用完整权限模式 |
+| `claude.maxTurns` | 单轮 Claude 会话最多可转多少次 |
+| `prompts.agentInstructionPath` | 指向 `RALPH.md` |
+| `prompts.extraContextPaths` | 给每轮附加上下文，比如 `CLAUDE.md` |
+| `prompts.strictSingleStory` | 是否注入严格“单轮只做一个故事”的协议 |
+| `validation.acceptanceCommands.typecheck` | 处理 `Typecheck passes` |
+| `validation.acceptanceCommands.tests` | 处理 `Tests pass` |
+| `validation.acceptanceCommands.browser` | 处理 `Verify in browser using dev-browser skill` |
 
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `prdPath` | `"./prd.json"` | PRD 文件路径（相对于配置文件所在目录） |
-| `progressPath` | `"./progress.txt"` | 进度日志路径 |
-| `maxIterations` | `10` | 最大迭代次数，达到后退出码为 1 |
-| `cooldownSeconds` | `3` | 迭代间冷却秒数，设为 `0` 禁用 |
+### `maxIterations` 和 `claude.maxTurns` 的区别
 
-#### Claude CLI 设置
+这是新手最容易混淆的一组配置。
 
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `claude.maxTurns` | `50` | Claude 单次会话最大轮次 |
+- `maxIterations`
+  控制 Ralph 整个执行循环最多跑多少轮
+- `claude.maxTurns`
+  控制单轮 Claude 会话内部最多允许多少轮交互
 
-#### 提示词设置
+可以把它们理解成：
 
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `prompts.agentInstructionPath` | `"./RALPH.md"` | 全局指令文件路径（如 RALPH.md），设为空字符串则不加载 |
-| `prompts.extraContextPaths` | `["./CLAUDE.md"]` | 额外上下文文件路径数组，支持 glob 模式 |
-| `prompts.extraInstructions` | `""` | 自由格式的附加指令文本 |
-| `prompts.strictSingleStory` | `true` | 是否注入严格单故事协议头部 |
+- `maxIterations` 是“Ralph 总共还能开几次工”
+- `claude.maxTurns` 是“Claude 在某一次开工里最多能忙多久”
 
-`extraContextPaths` 的 glob 示例：
-```json
-{
-  "extraContextPaths": [
-    "./docs/**/*.md",
-    "./openspec/changes/*/design.md",
-    "./CLAUDE.md"
-  ]
-}
-```
-每个 glob 模式内的匹配结果按字母排序，多个模式按数组顺序拼接。
-
-> **Pipeline 工作流**: 如果你使用 OpenSpec + Superpowers + Ralph 的完整流水线，`extraContextPaths` 中的 OpenSpec 路径会自动让 Ralph 的每一轮迭代读取最新的 design.md 和 tasks.md 作为上下文。详见 [Pipeline 使用指南](PIPELINE_GUIDE.md)。
-
-#### 验证设置
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `validation.checkGitCommit` | `true` | 会话结束后检查是否产生了包含故事 ID 的 git commit |
-| `validation.patchPrdPasses` | `true` | 只有在会话成功、检测到 completion signal、并通过验证后才自动修补 `passes` |
-| `validation.validatePrdSchema` | `true` | 检查 prd.json 结构完整性 |
-| `validation.acceptanceCommands.typecheck` | `""` | 为 `"Typecheck passes"` 配置可执行命令 |
-| `validation.acceptanceCommands.tests` | `""` | 为 `"Tests pass"` 配置可执行命令 |
-
-#### 权限设置
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `permissionsMode` | `"full"` | Claude CLI 权限模式：`"full"` 或 `"restricted"` |
-
-- **`"full"`**：传递 `--dangerously-skip-permissions --allowedTools all`，Claude 拥有完全的系统访问权限（文件读写、命令执行等）。**此模式适用于受控环境，请确保你了解风险。**
-- **`"restricted"`**：仅传递 `-p`，Claude 的工具使用将受到默认权限限制，某些操作需要手动确认。
-
-> **⚠️ 安全提示：** `full` 模式会跳过所有权限检查，Claude 可以执行任意命令和文件操作。在共享环境或生产环境中建议使用 `restricted` 模式。
-
-环境变量覆盖：`RALPH_PERMISSIONS_MODE=restricted`
-
-### 路径解析规则
-
-- 相对路径基于 **配置文件所在目录**（无配置文件时基于 CWD）
-- `~` 展开为用户主目录
+例如：
 
 ```json
 {
-  "prdPath": "./data/prd.json",
-  "prompts": {
-    "agentInstructionPath": "~/.ralph/RALPH.md"
+  "maxIterations": 10,
+  "claude": {
+    "maxTurns": 50
   }
 }
 ```
+
+意思是：
+
+- Ralph 最多发起 10 次独立执行轮次
+- 每次执行轮次里，Claude 最多进行 50 次内部交互
+
+如果你遇到的是：
+
+- 故事还很多，但 Ralph 很快整体停了
+  优先检查 `maxIterations`
+- 单个故事常常做到一半就结束
+  优先检查 `claude.maxTurns`
+
+不过，如果同一个 story 总是需要非常大的 `maxTurns` 才勉强完成，通常更好的做法还是把 story 拆小。
+
+### 一个很重要的注意点
+
+如果某个 UI story 的验收标准里有：
+
+```text
+Verify in browser using dev-browser skill
+```
+
+但你没有配置：
+
+```json
+"browser": "..."
+```
+
+那么这个 story 不会被自动标记完成。
+
+### 这些命令只是示例
+
+配置里的：
+
+- `npm run typecheck`
+- `npm test`
+- `npm run test:browser`
+
+都只是示例。  
+你需要换成你项目里真实存在的命令。
+
+---
+
+### 第 6 步：运行 Ralph
+
+进入业务项目目录执行：
+
+```bash
+ralph
+```
+
+或者限制最多轮数：
+
+```bash
+ralph 20
+```
+
+如果没有全局安装：
+
+```bash
+node D:/project/AI-Coding/ralph-longtask/ralph.js --config .
+```
+
+### Ralph 每轮大致会做什么
+
+1. 读取 `prd.json`
+2. 找出优先级最高、且 `passes: false` 的故事
+3. 组装 prompt
+4. 启动一个新的 Claude Code 会话
+5. 执行代码修改
+6. 运行结构验证、completion signal 检查、git commit 检查和 acceptance commands
+7. 如果全部通过，自动把当前故事的 `passes` 标记为 `true`
+8. 把结果写入 `progress.txt`
+
+---
+
+### 第 7 步：看 Ralph 跑完后留下什么
+
+#### `prd.json`
+
+通过验证的故事会变成：
+
+```json
+"passes": true
+```
+
+#### `progress.txt`
+
+会记录：
+
+- 哪一轮处理了哪个 story
+- 是否成功
+- 验证失败的原因
+- learnings 的来源内容
+
+#### git 历史
+
+如果开启了 `validation.checkGitCommit`，Ralph 会检查当前故事是否真的留下了对应提交痕迹。
+
+#### `archive/`
+
+如果你切换了 `branchName`，旧的 `prd.json` 和 `progress.txt` 会自动归档。
+
+---
+
+### 第 8 步：中断后继续
+
+如果 Ralph 执行过程中被中断：
+
+```bash
+ralph --resume
+```
+
+这会恢复 Ralph 的执行循环。  
+如果当前项目其实停在 pipeline 的 `execute` 之前，它也会优先衔接 pipeline 状态。
+
+---
+
+## 路径 A 常用命令
+
+```bash
+ralph
+ralph 20
+ralph --resume
+ralph --config ./path/to/project
+```
+
+---
+
+## 路径 B：OpenSpec + Superpowers + Ralph
+
+这是更完整的流程，把需求设计、评审、转换和执行串成一条线。
+
+完整说明请看 [PIPELINE_GUIDE.md](/D:/project/AI-Coding/ralph-longtask/doc/PIPELINE_GUIDE.md)。  
+这里先给一个总览。
+
+### 5 个阶段
+
+```text
+spec -> review -> convert -> execute -> archive
+```
+
+含义：
+
+- `spec`
+  由 OpenSpec 产出 `proposal.md`、`specs/`、`design.md`、`tasks.md`
+- `review`
+  由 Superpowers 审查并完善 OpenSpec 文档，再生成 `tasks/prd-*.md`
+- `convert`
+  由 `ralph` skill 把 PRD Markdown 转成 `prd.json`
+- `execute`
+  把执行正式交给 Ralph CLI
+- `archive`
+  由 OpenSpec `archive` 完成提案归档
+
+### 这条路径里几个组件的分工
+
+- OpenSpec
+  负责规格输入和归档
+- Superpowers
+  负责 review、文档收紧和 PRD 生成
+- Ralph pipeline CLI
+  负责状态机、artifact 探测和 gate 提示
+- `skills/pipeline`
+  负责对话里的 gate 管理和审批提醒
+
+### 重要边界
+
+当前实现里：
+
+- CLI 会检测 OpenSpec 和 Superpowers 是否可用
+- CLI 会根据 artifact 判断当前停在哪个 gate
+- CLI 会在 blocked 时明确提示下一步该由 OpenSpec、Superpowers 还是 `ralph` skill 接手
+- CLI 不会替你自动完成对话式 OpenSpec / Superpowers 全流程审批
+
+也就是说：
+
+- `ralph pipeline` 管“状态和 gate”
+- `pipeline` skill 管“对话和审批”
+
+---
+
+## 配置搜索规则
+
+Ralph 会从当前工作目录向上查找 `ralph.config.json`。
+
+例如你在：
+
+```text
+/project/src/components
+```
+
+执行命令，它会按顺序尝试：
+
+1. `/project/src/components/ralph.config.json`
+2. `/project/src/ralph.config.json`
+3. `/project/ralph.config.json`
+
+找到第一个后停止。
+
+如果一个都没找到，就使用默认值。
 
 ---
 
 ## 环境变量覆盖
 
-所有配置项可通过 `RALPH_` 前缀的环境变量覆盖，嵌套键用双下划线分隔。
+所有配置都可以通过 `RALPH_` 前缀的环境变量覆盖。
+
+常见映射：
 
 | 环境变量 | 对应配置 |
 |----------|----------|
@@ -263,123 +591,48 @@ Ralph 从当前工作目录开始，向上逐级搜索 `ralph.config.json`，直
 | `RALPH_VALIDATION_VALIDATE_PRD_SCHEMA` | `validation.validatePrdSchema` |
 | `RALPH_VALIDATION_ACCEPTANCE_COMMANDS_TYPECHECK` | `validation.acceptanceCommands.typecheck` |
 | `RALPH_VALIDATION_ACCEPTANCE_COMMANDS_TESTS` | `validation.acceptanceCommands.tests` |
+| `RALPH_VALIDATION_ACCEPTANCE_COMMANDS_BROWSER` | `validation.acceptanceCommands.browser` |
 
 示例：
+
 ```bash
 RALPH_MAX_ITERATIONS=20 RALPH_COOLDOWN_SECONDS=0 ralph
 ```
 
-数值类型会自动转换，布尔类型接受 `"true"` / `"false"`。解析失败时会输出警告并使用原值。
+---
+
+## 常见问题
+
+### 1. 为什么 Ralph 不直接执行 Markdown PRD？
+
+因为 Ralph 的执行输入是 `prd.json`。  
+Markdown PRD 更适合阅读、评审和修改，`prd.json` 更适合自动执行。
+
+### 2. `prd` skill 和 `ralph` skill 有什么区别？
+
+- `prd` skill：把功能描述整理成 Markdown PRD
+- `ralph` skill：把 Markdown PRD 转成 `prd.json`
+
+### 3. UI story 为什么总是不过？
+
+常见原因：
+
+- story 太大
+- story 包含 `Verify in browser using dev-browser skill`
+- 但配置里没有 `validation.acceptanceCommands.browser`
+
+### 4. `ralph --resume` 和 `ralph pipeline resume` 有什么区别？
+
+- `ralph --resume`
+  恢复 Ralph 的执行循环
+- `ralph pipeline resume`
+  恢复 pipeline 状态机
 
 ---
 
-## Pipeline CLI 子命令
+## 推荐阅读顺序
 
-Ralph 支持通过子命令管理 Pipeline 状态：
-
-```
-ralph pipeline status [--config <dir>]          # 显示管道状态
-ralph pipeline init <feature-name> [--config <dir>]  # 初始化管道
-ralph pipeline advance <phase> [--config <dir>]  # 标记阶段完成
-ralph pipeline check [--config <dir>]            # 粒度检测
-ralph pipeline learnings [--config <dir>]        # 提取经验归档
-ralph pipeline reset [--config <dir>]            # 清除状态
-```
-
-也可以通过独立命令运行：
-
-```bash
-ralph-pipeline status    # 等同于 ralph pipeline status
-```
-
-### 阶段顺序
-
-```
-spec → review → convert → execute
-```
-
-| 命令 | 说明 |
-|------|------|
-| `ralph pipeline init my-feature` | 创建 `.pipeline-state.json`，检测工具可用性 |
-| `ralph pipeline advance spec` | 标记 Phase 1 (OpenSpec) 完成 |
-| `ralph pipeline check` | 检查 prd.json 中每个故事的粒度，报告违规和拆分建议 |
-| `ralph pipeline advance execute` | 标记 Phase 4 完成（ralph 完成所有故事时自动调用） |
-| `ralph pipeline learnings` | 从 progress.txt 提取经验，写入 OpenSpec 或本地归档 |
-
----
-
-## 运行流程
-
-每次迭代的工作流程：
-
-```
-1. 加载 prd.json
-2. 找到优先级最高且 passes: false 的故事
-3. 备份 prd.json → prd.json.bak
-4. 拼装提示词（头部 → 全局指令 → 额外上下文 → 任务详情）
-5. 启动 Claude CLI 执行会话（实时流式输出）
-6. 会话结束后执行验证管线
-   ├── prd.json 结构校验
-   ├── git commit 时间窗口检查
-   └── passes 字段自动修补
-7. 追加进度到 progress.txt
-8. 冷却等待 → 进入下一次迭代
-```
-
-### 退出码
-
-| 退出码 | 含义 |
-|--------|------|
-| `0` | 所有故事完成（所有 passes 均为 true） |
-| `1` | 达到最大迭代次数未完成 或 致命错误 |
-| `130` | 用户 Ctrl+C 中断 |
-
-### 大 Prompt 处理
-
-提示词始终写入临时文件，通过 stream pipe 输入 Claude CLI，避免 shell 参数长度限制：
-
-```
-写入临时文件 → createReadStream 管道输入 Claude CLI stdin
-```
-
-会话结束后自动清理临时文件。
-
----
-
-## 典型项目结构
-
-```
-my-project/
-├── ralph.config.json       ← 项目配置
-├── prd.json                ← 用户故事
-├── progress.txt            ← 自动生成的进度日志
-├── RALPH.md                ← AI 行为指令（可选）
-├── CLAUDE.md               ← 项目约定（可选，通过 extraContextPaths 加载）
-├── archive/                ← 自动归档（切换 branchName 时保存旧运行数据）
-└── openspec/
-    └── changes/
-        └── my-feature/
-            ├── design.md
-            └── tasks.md
-```
-
-## 最小配置起步
-
-如果不想创建配置文件，只需 `prd.json` 即可运行：
-
-```bash
-# 准备 prd.json 后直接运行
-ralph
-
-# 指定 5 次迭代
-ralph 5
-
-# 关闭冷却，加快速度
-RALPH_COOLDOWN_SECONDS=0 ralph
-```
-
----
-
-## 更多信息
-
-- 架构设计和模块详解：参见 [ralph-cli.md](ralph-cli.md)
+1. [README.md](/D:/project/AI-Coding/ralph-longtask/README.md)
+2. 当前这份用户指南
+3. [PIPELINE_GUIDE.md](/D:/project/AI-Coding/ralph-longtask/doc/PIPELINE_GUIDE.md)
+4. [ralph-cli.md](/D:/project/AI-Coding/ralph-longtask/doc/ralph-cli.md)
