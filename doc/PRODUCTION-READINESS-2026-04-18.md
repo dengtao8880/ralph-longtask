@@ -1,7 +1,7 @@
 # Ralph 生产就绪度评估
 
 **评估日期：** 2026-04-18  
-**评估范围：** 主线 1（Ralph CLI 单独使用）+ 主线 2（OpenSpec + Superpowers + Ralph pipeline）
+**评估范围：** 主线 1（Ralph CLI 单独使用）与主线 2（OpenSpec + Superpowers + Ralph pipeline）
 
 ---
 
@@ -9,28 +9,46 @@
 
 ### 主线 1：`Beta / 内部受控可用`
 
-Ralph CLI 的核心实现已经具备明显的工程基础，适合：
+Ralph CLI 的核心执行链路已经比较扎实，适合：
 
 - 小团队内部使用
 - 开发者在旁值守
 - PRD 质量较高、story 粒度较小的项目
 
-但它还不适合：
-
-- 无人值守长时间自动运行
-- 对 token 成本敏感的批量执行
-- 需要强纠错和强人工接管能力的生产环境
+它现在仍然不适合直接承诺为“完全可放心挂机的生产自动化”，但已经从“能用”推进到了“带护栏可用”。
 
 ### 主线 2：`编排型 PoC，不具备生产流水线条件`
 
-当前 pipeline 的方向是对的，严格 gate 模型也清晰：
+当前 pipeline 的方向是正确的，严格 gate 也已经明确：
 
 ```text
 spec -> review -> convert -> execute -> archive
 ```
 
-但它更像“阶段编排器”，而不是“已经打通的自动化生产流水线”。  
-它适合做流程约束和状态管理，不适合被承诺为全自动交付链路。
+但它更像“阶段编排器”，而不是“已完全打通、可独立运行的自动化生产流水线”。  
+它适合做流程约束和状态管理，不适合被描述成开箱即用的全自动 pipeline。
+
+---
+
+## 2026-04-18 实施更新
+
+本轮已经补上的项：
+
+- Ralph CLI 新增了 `--story`、`--skip-story`、`--retry-story`、`--dry-run`
+- Ralph CLI 新增了 `--max-runtime-minutes`、`--max-failures-per-story`
+- 同一个 story 连续失败达到阈值后，会自动熔断跳过，并把原因写入 `progress.txt`
+- 自动跳过状态会持久化到 `.ralph-run-state.json`，后续 run 会继续避开坏 story，直到用户用 `--retry-story` 明确接管
+- Ralph 现在支持近似的 token / 成本预算护栏：`--max-total-tokens`、`--max-total-cost-usd`
+- dry-run 输出会直接显示当前预算护栏，`progress.txt` 也会追加“截至当前轮的预算估算”
+- pipeline blocked 文案已经改成“下一步该做什么”的用户导向提示
+- 严格 gate 之外的旧自动生成 helper 已清理，减少了两套架构并存造成的维护困惑
+- 主线二新增了手工集成验证文档 [PIPELINE-SMOKE-CHECKLIST.md](/D:/project/AI-Coding/ralph-longtask/doc/PIPELINE-SMOKE-CHECKLIST.md)
+
+本轮还没有解决的项：
+
+- 真实依赖安装齐全时的自动化集成测试
+- 更接近真实账单的 token / 成本统计
+- 更系统的运行统计与观测输出
 
 ---
 
@@ -40,72 +58,50 @@ spec -> review -> convert -> execute -> archive
 
 - 执行主循环稳定：`prd.json -> story -> prompt -> Claude -> validation -> progress`
 - 数据安全基础扎实：原子写入、`.bak` 备份、损坏恢复
-- 跨平台处理较成熟：尤其是 Windows 下的 Claude CLI 兼容
+- 跨平台处理较成熟，尤其是 Windows 下的 Claude CLI 兼容
 - 配置系统清晰：默认值、配置文件、环境变量三层合并
 - 验证链路完整：JSON 结构、git commit、completion signal、acceptance commands
-- UI 验收开始具备真实性：`browser` 验收已接入配置和校验
-- 测试覆盖关键主路径：当前测试集可以稳定兜住回归
+- UI 验收已经纳入真实配置和校验，`browser` acceptance command 可强制执行
+- 已有运行护栏：定向 story、手工跳过、自动熔断、持久化 auto-skip、runtime 预算、token/cost 预算
+- dry-run 已经可以在正式执行前预览队列和预算护栏
 
 ### 主线 2 已具备能力
 
-- 状态机设计清楚，阶段边界明确
+- 状态机设计清晰，阶段边界明确
 - CLI 子命令体系完整：`init/run/resume/status/advance/check/learnings/reset`
-- OpenSpec / Superpowers 探测路径已补齐
-- blocked 提示已经能指出下一步应该交给谁
-- 文档主线已经和“严格 gate”实现对齐
+- OpenSpec / Superpowers 探测路径已经补齐
+- blocked 提示可以明确指出下一步该交给谁
+- README、USER_GUIDE、PIPELINE_GUIDE 与严格 gate 实现已基本对齐
 
 ---
 
 ## 阻塞生产
 
-### 阻塞 1：坏 story 没有熔断或跳过机制
+### 阻塞 1：主线 1 的预算控制仍然是估算，不是账单级观测
 
-这是主线 1 最大的生产阻塞。
+虽然主线 1 已经具备：
 
-当前行为是：
+- `--max-runtime-minutes`
+- `--max-failures-per-story`
+- `--max-total-tokens`
+- `--max-total-cost-usd`
 
-- Ralph 每轮只取当前最高优先级且 `passes: false` 的 story
-- 如果该 story 因验收歧义、实现复杂度或环境问题持续失败
-- 后续迭代仍会继续命中同一个 story
+但当前 token / cost 仍然是“字符数推算”的近似模型。  
+这足够做“别让 run 继续失控”的护栏，但还不适合当成精确的成本审计依据。
 
-风险：
+### 阻塞 2：主线 1 的运行可观测性还不够强
 
-- 烧掉整轮预算
-- 用户离开后回来只看到“同一个 story 失败了很多次”
-- 信任迅速下降
-
-这会直接阻止“放心挂机跑”的使用场景。
-
-### 阻塞 2：缺少人工接管入口
-
-当前主线 1 没有这些关键入口：
+虽然现在已经有：
 
 - `--story US-XXX`
 - `--skip-story US-XXX`
-- 重新执行某个已完成 story
+- `--retry-story US-XXX`
+- `--dry-run`
 
-结果是：
+但长时间运行时，用户仍然主要依赖 `progress.txt` 人工回看。  
+它还缺少更清晰的 run 级汇总，例如总失败次数、各 story 尝试次数、预算消耗汇总。
 
-- 用户不能精确排障
-- 不能快速绕过已知坏 story
-- 只能改 `prd.json` 或改优先级来间接控制
-
-### 阻塞 3：没有运行预算护栏
-
-当前主要预算护栏只有：
-
-- `maxIterations`
-
-但缺少更贴近真实成本控制的限制，例如：
-
-- 最大 wall-clock 时间
-- 连续失败上限
-- 单个 story 最大失败次数
-- token / 成本预算
-
-这会让主线 1 在“自动运行”语境下显得不够安全。
-
-### 阻塞 4：主线 2 还不是端到端流水线
+### 阻塞 3：主线 2 仍然不是端到端自动流水线
 
 当前主线 2 是：
 
@@ -115,16 +111,16 @@ spec -> review -> convert -> execute -> archive
 - Ralph CLI 负责 `execute`
 - OpenSpec 负责 `archive`
 
-这本身没问题，但它意味着：
+这个分工本身没有问题，但它意味着：
 
-- 依赖链长
+- 依赖链较长
 - 工具安装要求高
-- 中间环节要靠对话和 skill 流程推进
-- 还不能把它包装成“开箱即用的自动化 pipeline”
+- 中间环节仍依赖对话式 skill 流程推进
+- 还不能把它包装成“开箱即用的自动 pipeline”
 
-### 阻塞 5：主线 2 还缺少真正的集成级证明
+### 阻塞 4：主线 2 仍缺少真实依赖齐全时的集成级证明
 
-虽然现在单元测试和编排测试已经不少，但仍缺少更贴近真实使用的证明：
+虽然现在已有不少单元测试和编排测试，但仍缺少一条更贴近真实使用的证明：
 
 - 从 OpenSpec artifact 准备完成
 - 到 Superpowers review 产出 PRD
@@ -132,29 +128,29 @@ spec -> review -> convert -> execute -> archive
 - 到 Ralph 执行
 - 到 OpenSpec archive
 
-这条链还没有一个“真实依赖安装齐全时”的集成级 smoke 证明。
+当前还没有一套“真实依赖安装齐全时”的自动化 smoke 证明。
 
 ---
 
 ## 建议增强
 
-### 高优先级增强
+### 高优先级
 
-1. 为单个 story 增加失败熔断
-2. 增加 `--story` / `--skip-story` / `--retry-story`
-3. 增加按时间或连续失败次数停止
-4. 为主线 2 增加集成 smoke 测试
-5. 清理旧自动化路线残留函数，降低维护困惑
+1. 为主线 2 增加自动化集成 smoke 测试
+2. 增加更清晰的运行统计和预算汇总输出
+3. 如果条件允许，接入更接近真实账单的 token / 成本统计
+4. 补一份更完整的故障排查文档
+5. 继续清理可能残留的旧自动化路线痕迹
 
-### 中优先级增强
+### 中优先级
 
 1. `ralph init` 脚手架命令
-2. `--dry-run` 预览将要执行的 story
-3. 更直白的 blocked 文案映射
-4. 更细的 acceptance command 错误提示
-5. 为 `prd.json` 提供 JSON Schema
+2. `--dry-run` 之外的更完整预览/报告模式
+3. 更细的 acceptance command 错误提示
+4. 给 `prd.json` 提供 JSON Schema
+5. 更细粒度的 CLI 运行摘要
 
-### 低优先级增强
+### 低优先级
 
 1. 更丰富的执行统计
 2. 更明确的成本可视化
@@ -165,45 +161,42 @@ spec -> review -> convert -> execute -> archive
 
 ## 两周路线图
 
-### 第 1 周：把主线 1 从“能用”拉到“可放心值守”
+### 第 1 周：把主线 1 从“带护栏可用”推进到“更可观测”
 
 #### 目标
 
-让 Ralph CLI 具备最基本的自动运行安全网。
+让 Ralph CLI 在长时间运行时更容易被用户理解和接管。
 
 #### 建议交付
 
-1. 单 story 连续失败计数
-2. 达到阈值后自动跳过并写入 `progress.txt`
-3. `--story US-XXX`
-4. `--skip-story US-XXX`
-5. `--max-failures-per-story`
-6. `--max-runtime-minutes`
+1. run 级预算与失败摘要
+2. story 尝试次数统计
+3. 统一的运行结果汇总输出
+4. 更明显的预算耗尽与熔断提示
 
 #### 完成标准
 
-- 用户可以放心让 Ralph 跑一段时间
-- 单个坏 story 不会吃光全部预算
-- 用户可以显式接管和排障
+- 用户能快速看懂这次 run 到底做了什么
+- 用户知道预算消耗到了哪里
+- 用户知道哪些 story 被跳过、为什么被跳过
 
-### 第 2 周：把主线 2 从“编排 PoC”拉到“可验证流程”
+### 第 2 周：把主线 2 从“编排型 PoC”推进到“可自证流程”
 
 #### 目标
 
-让主线 2 至少具备“能被证明跑通”的可信度。
+让主线 2 至少具备“能被证明跑通过”的可信度。
 
 #### 建议交付
 
-1. 增加集成级 smoke 测试方案
-2. 清理旧自动生成路线残留代码，保留严格 gate 实现
-3. blocked 提示改为更贴近用户动作的话术
-4. 明确记录主线 2 的依赖安装检查表
-5. 增加一份“最小可跑通示例”
+1. 自动化 smoke 测试方案
+2. 一份最小可跑通示例
+3. 更清晰的依赖安装检查清单
+4. 更系统的 blocked/next-step 指引
 
 #### 完成标准
 
 - 新维护者能理解主线 2 的真实边界
-- 用户知道自己卡在哪一步、该做什么
+- 用户知道自己卡在哪一步、下一步该做什么
 - 项目可以自证“这不是幻觉型 pipeline”
 
 ---
@@ -231,5 +224,5 @@ spec -> review -> convert -> execute -> archive
 
 ### 一句话总结
 
-这个项目真正缺的不是主干逻辑，而是自动化产品该有的护栏。  
-主线 1 缺安全网，主线 2 缺集成级自证。
+这个项目真正缺的已经不是主干逻辑，而是更强的观测、自证和端到端验证。  
+主线 1 现在有了护栏，但还缺账单级和运行级可观测性；主线 2 有了正确架构，但还缺自动化集成自证。

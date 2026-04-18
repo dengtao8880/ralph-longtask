@@ -469,6 +469,19 @@ node D:/project/AI-Coding/ralph-longtask/ralph.js --config .
 
 这里会追加每轮的结果、失败原因、经验总结。
 
+#### `.ralph-run-state.json`
+
+这里会记录 Ralph 的运行护栏状态，例如：
+
+- 哪些 story 因为连续失败被自动跳过
+- 这些自动跳过是在哪次熔断后产生的
+
+如果某个 story 被熔断后你已经人工修好了，重新运行时可以用：
+
+```bash
+ralph --retry-story US-001
+```
+
 #### git 历史
 
 如果开启了 `checkGitCommit`，Ralph 会检查当前 story 是否真的产生了对应提交。
@@ -498,10 +511,73 @@ ralph --resume
 ralph
 ralph 20
 ralph --resume
+ralph --story US-003
+ralph --skip-story US-001 --skip-story US-002
+ralph --max-runtime-minutes 45
+ralph --max-failures-per-story 2
 ralph --config ./path/to/project
 ```
 
 ---
+
+### 主线一新增的运行护栏
+
+如果你已经准备把 Ralph 挂着自己跑，最常用的是这 5 个开关：
+
+- `--story US-XXX`
+  只跑一个指定 story，适合排障、补跑或人工接管
+- `--skip-story US-XXX`
+  跳过某个已知坏 story，本次运行里不再碰它；这个 story 不会被标记为完成
+- `--retry-story US-XXX`
+  把一个因为连续失败而被持久跳过的 story 拉回执行队列
+- `--dry-run`
+  只预览当前 run 会挑哪些 story，不会启动 Claude，也不会写入新的执行进度
+- `--max-total-tokens <n>`
+  当本次 run 的估算总 tokens 达到上限后，在开始下一轮前停下
+- `--max-total-cost-usd <n>`
+  当本次 run 的估算总成本达到上限后，在开始下一轮前停下
+- `--max-runtime-minutes <n>`
+  运行超过这个时间后，Ralph 会在开始下一轮前主动停下
+- `--max-failures-per-story <n>`
+  同一个 story 连续失败达到阈值后，Ralph 会把它加入“当前 run + 后续 run”的自动跳过列表，并继续找别的 story
+
+如果你不显式传 `--max-failures-per-story`，当前默认值是 `3`。  
+自动跳过状态会写进项目根目录的 `.ralph-run-state.json`。  
+它不会修改 `prd.json` 里的 `passes`；如果你已经修好了这个 story，可以用 `--retry-story` 把它重新放回执行队列。
+
+如果你想在真正开跑前先确认 Ralph 现在会怎么选 story，可以先执行：
+
+```bash
+ralph --dry-run
+```
+
+它会告诉你：
+
+- 当前有多少个 incomplete story 在本次作用域里
+- 按优先级排序后，哪些 story 会真的进入执行队列
+- 哪些 story 因为 `--skip-story` 或持久化 auto-skip 被挡住了
+- 当前配置下的预算护栏，例如 token 上限和成本上限
+
+如果你要控制预算，这一版用的是“近似估算”：
+
+- token 估算 = `字符数 / charsPerToken`
+- 成本估算 = 按 input/output token 单价折算
+
+它不是 Claude 官方账单接口，但足够做“不要让 run 继续失控”的护栏。
+
+如果你使用 `--max-total-cost-usd`，还需要在配置里给出至少一个单价：
+
+```json
+"budget": {
+  "maxTotalTokens": 12000,
+  "maxTotalCostUsd": 2.5,
+  "charsPerToken": 4,
+  "inputCostPer1kTokensUsd": 0.003,
+  "outputCostPer1kTokensUsd": 0.015
+}
+```
+
+真正开始执行后，Ralph 还会把“截至当前轮的预算估算”追加进 `progress.txt`，方便你回看这次 run 大概已经消耗到了哪里。
 
 ### 主线一最推荐的上手顺序
 
@@ -889,6 +965,8 @@ ralph pipeline learnings
 - gotchas
 - recommendations
 
+如果你准备把主线二交给团队长期使用，建议再顺手跑一遍 [Pipeline Smoke Checklist](doc/PIPELINE-SMOKE-CHECKLIST.md)。
+
 并写入归档文件。
 
 ---
@@ -1000,7 +1078,8 @@ Markdown PRD 更适合阅读和评审，`prd.json` 更适合自动执行。
 1. 先读这份 README
 2. 再看 [User Guide](doc/USER_GUIDE.md)
 3. 如果你要用 pipeline，再看 [Pipeline Guide](doc/PIPELINE_GUIDE.md)
-4. 如果你想了解内部实现，再看 [Ralph CLI architecture](doc/ralph-cli.md)
+4. 如果你要验证整条主线二是否真的可跑，再看 [Pipeline Smoke Checklist](doc/PIPELINE-SMOKE-CHECKLIST.md)
+5. 如果你想了解内部实现，再看 [Ralph CLI architecture](doc/ralph-cli.md)
 
 ---
 

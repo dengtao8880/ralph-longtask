@@ -460,6 +460,19 @@ node D:/project/AI-Coding/ralph-longtask/ralph.js --config .
 - 验证失败的原因
 - learnings 的来源内容
 
+#### `.ralph-run-state.json`
+
+会记录运行护栏状态，例如：
+
+- 哪些 story 因为连续失败被自动跳过
+- 这些自动跳过是在什么条件下触发的
+
+如果某个 story 被熔断后你已经人工修好了，可以这样重新放回执行队列：
+
+```bash
+ralph --retry-story US-001
+```
+
 #### git 历史
 
 如果开启了 `validation.checkGitCommit`，Ralph 会检查当前故事是否真的留下了对应提交痕迹。
@@ -489,16 +502,72 @@ ralph --resume
 ralph
 ralph 20
 ralph --resume
+ralph --story US-003
+ralph --skip-story US-001 --skip-story US-002
+ralph --max-runtime-minutes 45
+ralph --max-failures-per-story 2
 ralph --config ./path/to/project
 ```
 
 ---
+
+## 路径 A 新增的运行护栏
+
+- `--story US-XXX`
+  只跑一个指定 story，适合排障、补跑或人工接管
+- `--skip-story US-XXX`
+  跳过某个已知坏 story，本次运行里不再碰它；这个 story 不会被标记为完成
+- `--retry-story US-XXX`
+  把一个因为连续失败而被持久跳过的 story 拉回执行队列
+- `--dry-run`
+  只预览当前 run 会挑哪些 story，不会启动 Claude，也不会写入新的执行进度
+- `--max-total-tokens <n>`
+  当本次 run 的估算总 tokens 达到上限后，在开始下一轮前停下
+- `--max-total-cost-usd <n>`
+  当本次 run 的估算总成本达到上限后，在开始下一轮前停下
+- `--max-runtime-minutes <n>`
+  运行超过这个时间后，Ralph 会在开始下一轮前主动停下
+- `--max-failures-per-story <n>`
+  同一个 story 连续失败达到阈值后，Ralph 会把它加入“当前 run + 后续 run”的自动跳过列表，并继续找别的 story
+
+如果你不显式传 `--max-failures-per-story`，当前默认值是 `3`。  
+自动跳过状态会写进项目根目录的 `.ralph-run-state.json`。  
+它不会修改 `prd.json` 里的 `passes`；如果你已经修好了这个 story，可以用 `--retry-story` 把它重新放回执行队列。
+
+如果你想先确认 Ralph 当前会怎么排队执行 story，可以先执行：
+
+```bash
+ralph --dry-run
+```
+
+它会把“可执行队列”和“被跳过队列”分开显示出来，适合真正开跑前先做一次人工确认。
+如果当前配置了 token / 成本预算，它也会一并把预算护栏打印出来。
+
+如果你要控制预算，这一版使用的是“近似 token / 成本估算”，不是官方账单接口：
+
+- token 估算 = `字符数 / charsPerToken`
+- 成本估算 = 按 input/output token 单价折算
+
+如果你使用 `--max-total-cost-usd`，记得同时配置至少一个单价：
+
+```json
+"budget": {
+  "maxTotalTokens": 12000,
+  "maxTotalCostUsd": 2.5,
+  "charsPerToken": 4,
+  "inputCostPer1kTokensUsd": 0.003,
+  "outputCostPer1kTokensUsd": 0.015
+}
+```
+
+真正开始执行后，Ralph 还会把“截至当前轮的预算估算”追加进 `progress.txt`，这样你回看运行日志时，不需要自己再手工换算。
 
 ## 路径 B：OpenSpec + Superpowers + Ralph
 
 这是更完整的流程，把需求设计、评审、转换和执行串成一条线。
 
 完整说明请看 [PIPELINE_GUIDE.md](/D:/project/AI-Coding/ralph-longtask/doc/PIPELINE_GUIDE.md)。  
+如果你要验证主线二是否真的能按步骤跑通，再看 [PIPELINE-SMOKE-CHECKLIST.md](/D:/project/AI-Coding/ralph-longtask/doc/PIPELINE-SMOKE-CHECKLIST.md)。  
 这里先给一个总览。
 
 ### 5 个阶段

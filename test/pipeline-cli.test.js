@@ -585,6 +585,7 @@ describe('pipeline blocked messaging', () => {
       const output = logs.join('\n');
       assert.ok(output.includes('Pipeline paused at phase: spec'));
       assert.ok(output.includes('OpenSpec is required for this pipeline.'));
+      assert.ok(output.includes('Next step: install the OpenSpec CLI or open an OpenSpec-enabled agent'));
     } finally {
       process.env.PATH = originalPath;
       rmSync(dir, { recursive: true, force: true });
@@ -612,6 +613,7 @@ describe('pipeline blocked messaging', () => {
 
       const output = logs.join('\n');
       assert.ok(output.includes('Pipeline paused at phase: spec'));
+      assert.ok(output.includes('Next step: if the request is still fuzzy'));
       assert.ok(output.includes('/opsx:explore'));
       assert.ok(output.includes('/opsx:propose'));
     } finally {
@@ -711,7 +713,7 @@ describe('pipeline end-to-end paths', () => {
 
     assert.deepEqual(state.completedPhases, ['spec', 'review']);
     assert.ok(output.includes('Pipeline paused at phase: convert'));
-    assert.ok(output.includes('Run the ralph skill to convert'));
+    assert.ok(output.includes('Next step: run the ralph skill to convert'));
 
     rmSync(dir, { recursive: true, force: true });
   });

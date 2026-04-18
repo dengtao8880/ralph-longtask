@@ -575,6 +575,21 @@ ralph pipeline learnings
 - gotchas
 - recommendations
 
+---
+
+## Smoke Checklist
+
+如果你准备把这条主线交给团队长期使用，建议至少手工跑一遍：
+
+- OpenSpec change 创建
+- Superpowers review handoff
+- `ralph` skill 转换 `prd.json`
+- Ralph CLI 执行
+- OpenSpec archive
+
+检查表已经整理成单独文档：
+[PIPELINE-SMOKE-CHECKLIST.md](/D:/project/AI-Coding/ralph-longtask/doc/PIPELINE-SMOKE-CHECKLIST.md)
+
 并写入归档文件。
 
 ---

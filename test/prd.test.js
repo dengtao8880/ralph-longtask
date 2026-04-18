@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadPRD, getNextStory, savePRD, validatePrdStructure } from '../lib/prd.js';
+import { loadPRD, getIncompleteStories, getNextStory, savePRD, validatePrdStructure } from '../lib/prd.js';
 
 const TEST_DIR = join(tmpdir(), `ralph-test-prd-${Date.now()}`);
 
@@ -82,6 +82,38 @@ describe('prd', () => {
       };
       const story = getNextStory(prd);
       assert.equal(story.id, 'US-B');
+    });
+
+    it('returns the explicitly selected incomplete story', () => {
+      const story = getNextStory(SAMPLE_PRD, { storyId: 'US-002' });
+      assert.equal(story.id, 'US-002');
+    });
+
+    it('returns null when the selected story is already complete', () => {
+      const story = getNextStory(SAMPLE_PRD, { storyId: 'US-003' });
+      assert.equal(story, null);
+    });
+
+    it('skips stories from the provided skip list', () => {
+      const story = getNextStory(SAMPLE_PRD, { skipStories: ['US-001'] });
+      assert.equal(story.id, 'US-002');
+    });
+  });
+
+  describe('getIncompleteStories', () => {
+    it('returns incomplete stories sorted by priority', () => {
+      const stories = getIncompleteStories(SAMPLE_PRD);
+      assert.deepEqual(stories.map((story) => story.id), ['US-001', 'US-002']);
+    });
+
+    it('filters by selected story before sorting', () => {
+      const stories = getIncompleteStories(SAMPLE_PRD, { storyId: 'US-002' });
+      assert.deepEqual(stories.map((story) => story.id), ['US-002']);
+    });
+
+    it('excludes skipped stories from the incomplete list', () => {
+      const stories = getIncompleteStories(SAMPLE_PRD, { skipStories: ['US-001'] });
+      assert.deepEqual(stories.map((story) => story.id), ['US-002']);
     });
   });
 

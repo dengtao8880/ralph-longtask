@@ -152,4 +152,20 @@ describe('config', () => {
     assert.equal(config.validation.acceptanceCommands.tests, 'npm test');
     assert.equal(config.validation.acceptanceCommands.browser, 'npm run test:browser');
   });
+
+  it('supports env overrides for budget settings', () => {
+    process.env.RALPH_BUDGET_MAX_TOTAL_TOKENS = '12000';
+    process.env.RALPH_BUDGET_MAX_TOTAL_COST_USD = '2.5';
+    process.env.RALPH_BUDGET_CHARS_PER_TOKEN = '4';
+    process.env.RALPH_BUDGET_INPUT_COST_PER_1K_TOKENS_USD = '0.003';
+    process.env.RALPH_BUDGET_OUTPUT_COST_PER_1K_TOKENS_USD = '0.015';
+
+    const config = loadConfig(TEST_DIR);
+
+    assert.equal(config.budget.maxTotalTokens, 12000);
+    assert.equal(config.budget.maxTotalCostUsd, 2.5);
+    assert.equal(config.budget.charsPerToken, 4);
+    assert.equal(config.budget.inputCostPer1kTokensUsd, 0.003);
+    assert.equal(config.budget.outputCostPer1kTokensUsd, 0.015);
+  });
 });
