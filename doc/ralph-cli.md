@@ -133,9 +133,9 @@ Completed successfully (auto-patched)
 Validation failed: no-commit
 ```
 
-### 8. 大 Prompt 自动处理
+### 8. Prompt 管道输入
 
-当拼装的提示词超过 6000 字符时，自动切换为临时文件模式（不再通过命令行参数传递），避免 shell 参数长度限制。会话结束后自动清理临时文件。
+提示词始终写入临时文件，通过 stream pipe 输入 Claude CLI 的 stdin，避免 shell 参数长度限制。会话结束后自动清理临时文件。
 
 ---
 
@@ -148,7 +148,8 @@ ralph.js              ← 入口，主循环
 ├── lib/prompt-builder.js  ← 六层提示词拼装
 ├── lib/executor.js   ← Claude CLI 子进程管理，Windows 适配
 ├── lib/validator.js  ← 会话后验证管线
-└── lib/progress.js   ← 进度日志管理
+├── lib/progress.js   ← 进度日志管理
+└── lib/archive.js    ← 分支变更归档（branchName 变化时自动归档旧运行数据）
 ```
 
 各模块职责单一，通过配置对象解耦，可独立测试。
@@ -260,6 +261,7 @@ my-project/
 ├── progress.txt            ← 自动生成的进度日志
 ├── RALPH.md                ← AI 行为指令
 ├── CLAUDE.md               ← 项目约定（通过 extraContextPaths 注入）
+├── archive/                ← 自动归档（切换 branchName 时保存旧运行数据）
 └── src/                    ← 项目源代码
 ```
 

@@ -134,6 +134,7 @@ Ralph 从当前工作目录开始，向上逐级搜索 `ralph.config.json`，直
   "progressPath": "./progress.txt",
   "maxIterations": 10,
   "cooldownSeconds": 3,
+  "permissionsMode": "full",
 
   "claude": {
     "maxTurns": 30,
@@ -174,15 +175,15 @@ Ralph 从当前工作目录开始，向上逐级搜索 `ralph.config.json`，直
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `claude.maxTurns` | `30` | Claude 单次会话最大轮次 |
+| `claude.maxTurns` | `50` | Claude 单次会话最大轮次 |
 | `claude.outputFormat` | `"text"` | 输出格式：`"text"` 或 `"stream-json"` |
 
 #### 提示词设置
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `prompts.agentInstructionPath` | `null` | 全局指令文件路径（如 RALPH.md），`null` 表示不加载 |
-| `prompts.extraContextPaths` | `[]` | 额外上下文文件路径数组，支持 glob 模式 |
+| `prompts.agentInstructionPath` | `"./RALPH.md"` | 全局指令文件路径（如 RALPH.md），设为空字符串则不加载 |
+| `prompts.extraContextPaths` | `["./CLAUDE.md"]` | 额外上下文文件路径数组，支持 glob 模式 |
 | `prompts.extraInstructions` | `""` | 自由格式的附加指令文本 |
 | `prompts.strictSingleStory` | `true` | 是否注入严格单故事协议头部 |
 
@@ -274,28 +275,29 @@ RALPH_MAX_ITERATIONS=20 RALPH_COOLDOWN_SECONDS=0 ralph
 3. 备份 prd.json → prd.json.bak
 4. 拼装提示词（头部 → 全局指令 → 额外上下文 → 任务详情）
 5. 启动 Claude CLI 执行会话（实时流式输出）
-6. 检测 <promise>COMPLETE</promise> 信号
-7. 会话后验证：
+6. 会话结束后执行验证管线
    ├── prd.json 结构校验
    ├── git commit 时间窗口检查
    └── passes 字段自动修补
-8. 追加进度到 progress.txt
-9. 冷却等待 → 进入下一次迭代
+7. 追加进度到 progress.txt
+8. 冷却等待 → 进入下一次迭代
 ```
 
 ### 退出码
 
 | 退出码 | 含义 |
 |--------|------|
-| `0` | 所有故事完成 或 收到 COMPLETE 信号 |
+| `0` | 所有故事完成（所有 passes 均为 true） |
 | `1` | 达到最大迭代次数未完成 或 致命错误 |
 | `130` | 用户 Ctrl+C 中断 |
 
 ### 大 Prompt 处理
 
-当拼装的提示词超过 6000 字符时，自动切换为临时文件模式：
-- Unix: `cat tmpfile | claude -p ...`
-- Windows: `type tmpfile | claude -p ...`
+提示词始终写入临时文件，通过 stream pipe 输入 Claude CLI，避免 shell 参数长度限制：
+
+```
+写入临时文件 → createReadStream 管道输入 Claude CLI stdin
+```
 
 会话结束后自动清理临时文件。
 
@@ -310,6 +312,7 @@ my-project/
 ├── progress.txt            ← 自动生成的进度日志
 ├── RALPH.md                ← AI 行为指令（可选）
 ├── CLAUDE.md               ← 项目约定（可选，通过 extraContextPaths 加载）
+├── archive/                ← 自动归档（切换 branchName 时保存旧运行数据）
 └── openspec/
     └── changes/
         └── my-feature/
