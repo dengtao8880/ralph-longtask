@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import { loadConfig } from './lib/config.js';
 import { loadPRD, getIncompleteStories, getNextStory } from './lib/prd.js';
-import { buildPrompt, ensurePromptWithinLimit } from './lib/prompt-builder.js';
+import { buildPrompt, ensureStoryWithinLimit } from './lib/prompt-builder.js';
 import { findClaudeBinary, executeSession } from './lib/executor.js';
 import { runValidation } from './lib/validator.js';
 import { initProgress, appendProgress } from './lib/progress.js';
@@ -616,7 +616,7 @@ async function main() {
     const promptResult = await buildPrompt(story, config.prompts, prd);
     const { prompt } = promptResult;
     try {
-      ensurePromptWithinLimit(promptResult, story);
+      ensureStoryWithinLimit(story);
     } catch (err) {
       console.error(chalk.red(err.message));
       appendProgress(config.progressPath, {
